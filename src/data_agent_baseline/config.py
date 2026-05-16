@@ -27,6 +27,7 @@ class AgentConfig:
     api_base: str = "https://api.openai.com/v1"
     api_key: str = ""
     max_steps: int = 16
+    model_call_timeout_seconds: int = 60
     temperature: float = 0.0
 
 
@@ -72,6 +73,12 @@ def load_app_config(config_path: Path) -> AppConfig:
         api_base=str(agent_payload.get("api_base", agent_defaults.api_base)),
         api_key=str(agent_payload.get("api_key", agent_defaults.api_key)),
         max_steps=int(agent_payload.get("max_steps", agent_defaults.max_steps)),
+        model_call_timeout_seconds=int(
+            agent_payload.get(
+                "model_call_timeout_seconds",
+                agent_defaults.model_call_timeout_seconds,
+            )
+        ),
         temperature=float(agent_payload.get("temperature", agent_defaults.temperature)),
     )
     raw_run_id = run_payload.get("run_id")

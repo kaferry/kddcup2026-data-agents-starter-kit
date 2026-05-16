@@ -106,7 +106,10 @@ def _run_single_task_core(
     agent = ReActAgent(
         model=model or build_model_adapter(config),
         tools=tools or create_default_tool_registry(),
-        config=ReActAgentConfig(max_steps=config.agent.max_steps),
+        config=ReActAgentConfig(
+            max_steps=config.agent.max_steps,
+            model_call_timeout_seconds=config.agent.model_call_timeout_seconds,
+        ),
     )
     run_result = agent.run(task)
     return run_result.to_dict()
@@ -129,10 +132,8 @@ def _run_single_task_in_subprocess(task_id: str, config: AppConfig, queue: multi
         )
 
 
-def _run_single_task_with_timeout(*, task_id: str, config: AppConfig) -> dict[str, Any]:
+def _attempt_task(*, task_id: str, config: AppConfig) -> dict[str, Any]:
     timeout_seconds = config.run.task_timeout_seconds
-    if timeout_seconds <= 0:
-        return _run_single_task_core(task_id=task_id, config=config)
 
     queue: multiprocessing.Queue[Any] = multiprocessing.Queue()
     process = multiprocessing.Process(
@@ -163,6 +164,22 @@ def _run_single_task_with_timeout(*, task_id: str, config: AppConfig) -> dict[st
     if result.get("ok"):
         return dict(result["run_result"])
     return _failure_run_result_payload(task_id, f"Task failed with uncaught error: {result['error']}")
+
+
+def _run_single_task_with_timeout(*, task_id: str, config: AppConfig) -> dict[str, Any]:
+    if config.run.task_timeout_seconds <= 0:
+        return _run_single_task_core(task_id=task_id, config=config)
+
+    result = _attempt_task(task_id=task_id, config=config)
+
+    # Retry once on 0-step timeout: fresh subprocess gets a new network connection,
+    # recovering from API hangs that occur during the initial TLS handshake.
+    steps = result.get("steps", [])
+    failure = result.get("failure_reason", "")
+    if len(steps) == 0 and "timed out" in failure:
+        result = _attempt_task(task_id=task_id, config=config)
+
+    return result
 
 
 def _write_task_outputs(task_id: str, run_output_dir: Path, run_result: dict[str, Any]) -> TaskRunArtifacts:
@@ -265,6 +282,25 @@ def run_benchmark(
                 if progress_callback is not None:
                     progress_callback(artifact)
             task_artifacts = [artifact for artifact in indexed_artifacts if artifact is not None]
+
+    # Phase 2: retry failed tasks sequentially to reduce API contention
+    failed_artifacts = [a for a in task_artifacts if not a.succeeded]
+    if failed_artifacts and effective_workers > 1:
+        retry_model = build_model_adapter(config)
+        retry_tools = create_default_tool_registry()
+        artifact_map = {a.task_id: a for a in task_artifacts}
+        for failed in failed_artifacts:
+            retry = run_single_task(
+                task_id=failed.task_id,
+                config=config,
+                run_output_dir=run_output_dir,
+                model=retry_model,
+                tools=retry_tools,
+            )
+            artifact_map[failed.task_id] = retry
+            if progress_callback is not None:
+                progress_callback(retry)
+        task_artifacts = list(artifact_map.values())
 
     summary_path = run_output_dir / "summary.json"
     _write_json(

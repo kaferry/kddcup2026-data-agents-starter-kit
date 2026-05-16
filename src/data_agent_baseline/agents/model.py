@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+import httpx
 from openai import APIError, OpenAI
 
 
@@ -13,10 +14,14 @@ class ModelMessage:
 
 
 @dataclass(frozen=True, slots=True)
-class ModelStep:
-    thought: str
+class ModelAction:
     action: str
     action_input: dict[str, Any]
+
+@dataclass(frozen=True, slots=True)
+class ModelStep:
+    thought: str
+    actions: list[ModelAction]
     raw_response: str
 
 
@@ -46,6 +51,8 @@ class OpenAIModelAdapter:
         client = OpenAI(
             api_key=self.api_key,
             base_url=self.api_base,
+            timeout=httpx.Timeout(connect=10.0, read=45.0, write=10.0, pool=5.0),
+            max_retries=0,
         )
 
         try:

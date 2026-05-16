@@ -6,6 +6,7 @@ agent:
   api_base: YOUR_API_BASE_URL
   api_key: YOUR_API_KEY
   max_steps: 16
+  model_call_timeout_seconds: 60
   temperature: 0.0
 
 run:

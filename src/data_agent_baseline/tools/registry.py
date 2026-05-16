@@ -48,13 +48,15 @@ def _read_csv(task: PublicTask, action_input: dict[str, Any]) -> ToolExecutionRe
 
 def _read_json(task: PublicTask, action_input: dict[str, Any]) -> ToolExecutionResult:
     path = str(action_input["path"])
-    max_chars = int(action_input.get("max_chars", 4000))
+    max_chars = int(action_input.get("max_chars", 10000))
+    max_chars = min(max_chars, 10000)
     return ToolExecutionResult(ok=True, content=read_json_preview(task, path, max_chars=max_chars))
 
 
 def _read_doc(task: PublicTask, action_input: dict[str, Any]) -> ToolExecutionResult:
     path = str(action_input["path"])
-    max_chars = int(action_input.get("max_chars", 4000))
+    max_chars = int(action_input.get("max_chars", 10000))
+    max_chars = min(max_chars, 10000)
     return ToolExecutionResult(ok=True, content=read_doc_preview(task, path, max_chars=max_chars))
 
 
@@ -132,7 +134,12 @@ def create_default_tool_registry() -> ToolRegistry:
     specs = {
         "answer": ToolSpec(
             name="answer",
-            description="Submit the final answer table. This is the only valid terminating action.",
+            description=(
+                "Submit the final answer table. This is the only valid terminating action. "
+                "CRITICAL: `columns` must contain ONLY the column(s) explicitly requested by the question. "
+                "Do NOT include IDs, extra fields, or intermediate values unless the question asks for them. "
+                "Extra columns = score of 0. For 'which/lowest/highest' questions: exactly 1 row expected."
+            ),
             input_schema={
                 "columns": ["column_name"],
                 "rows": [["value_1"]],
@@ -171,13 +178,13 @@ def create_default_tool_registry() -> ToolRegistry:
         ),
         "read_doc": ToolSpec(
             name="read_doc",
-            description="Read a text-like document inside context.",
-            input_schema={"path": "relative/path/to/file.md", "max_chars": 4000},
+            description="Read a text-like document inside context (preview capped at 10000 chars).",
+            input_schema={"path": "relative/path/to/file.md", "max_chars": 10000},
         ),
         "read_json": ToolSpec(
             name="read_json",
-            description="Read a preview of a JSON file inside context.",
-            input_schema={"path": "relative/path/to/file.json", "max_chars": 4000},
+            description="Read a preview of a JSON file inside context (preview capped at 10000 chars).",
+            input_schema={"path": "relative/path/to/file.json", "max_chars": 10000},
         ),
     }
     handlers = {
