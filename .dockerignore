@@ -1,0 +1,12 @@
+artifacts/
+data/
+scratch/
+*.md
+!README.md
+*.csv
+*.tar.gz
+.git/
+__pycache__/
+*.pyc
+.venv/
+configs/
