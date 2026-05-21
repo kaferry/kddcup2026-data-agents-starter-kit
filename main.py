@@ -3,6 +3,7 @@ import shutil
 from pathlib import Path
 
 from data_agent_baseline.config import AppConfig, AgentConfig, DatasetConfig, RunConfig
+from data_agent_baseline.preprocess import preprocess_input
 from data_agent_baseline.run.runner import run_benchmark
 
 
@@ -11,8 +12,15 @@ def main() -> None:
     model_api_key = os.environ["MODEL_API_KEY"]
     model_name = os.environ.get("MODEL_NAME", "qwen/qwen3.5-35b-a3b")
 
+    input_rw = Path("/tmp/input_rw")
+    artifacts_map = preprocess_input(Path("/input"), input_rw)
+    if artifacts_map:
+        print(f"Preprocessing produced artifacts for {len(artifacts_map)} tasks:", flush=True)
+        for tid, descs in artifacts_map.items():
+            print(f"  {tid}: {descs}", flush=True)
+
     config = AppConfig(
-        dataset=DatasetConfig(root_path=Path("/input")),
+        dataset=DatasetConfig(root_path=input_rw),
         agent=AgentConfig(
             model=model_name,
             api_base=model_api_url,

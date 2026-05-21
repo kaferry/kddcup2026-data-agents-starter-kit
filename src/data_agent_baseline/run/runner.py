@@ -3,6 +3,8 @@ from __future__ import annotations
 import csv
 import json
 import multiprocessing
+import queue as _queue_module
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -135,13 +137,27 @@ def _run_single_task_in_subprocess(task_id: str, config: AppConfig, queue: multi
 def _attempt_task(*, task_id: str, config: AppConfig) -> dict[str, Any]:
     timeout_seconds = config.run.task_timeout_seconds
 
-    queue: multiprocessing.Queue[Any] = multiprocessing.Queue()
+    result_queue: multiprocessing.Queue[Any] = multiprocessing.Queue()
     process = multiprocessing.Process(
         target=_run_single_task_in_subprocess,
-        args=(task_id, config, queue),
+        args=(task_id, config, result_queue),
     )
     process.start()
-    process.join(timeout_seconds)
+    deadline = time.monotonic() + timeout_seconds
+
+    # Poll the queue in a tight loop so the parent continuously drains the pipe.
+    # This prevents the macOS/spawn deadlock where a large result (>64KB) causes
+    # queue.put() in the subprocess to block while the parent waits in join().
+    result = None
+    while True:
+        try:
+            result = result_queue.get(timeout=1.0)
+            break
+        except _queue_module.Empty:
+            if time.monotonic() >= deadline:
+                break
+            if not process.is_alive():
+                break
 
     if process.is_alive():
         process.terminate()
@@ -149,18 +165,18 @@ def _attempt_task(*, task_id: str, config: AppConfig) -> dict[str, Any]:
         if process.is_alive():
             process.kill()
             process.join()
-        return _failure_run_result_payload(task_id, f"Task timed out after {timeout_seconds} seconds.")
+    else:
+        process.join()
 
-    if queue.empty():
+    if result is None:
         exit_code = process.exitcode
         if exit_code not in (None, 0):
             return _failure_run_result_payload(
                 task_id,
                 f"Task exited unexpectedly with exit code {exit_code}.",
             )
-        return _failure_run_result_payload(task_id, "Task exited without returning a result.")
+        return _failure_run_result_payload(task_id, f"Task timed out after {timeout_seconds} seconds.")
 
-    result = queue.get()
     if result.get("ok"):
         return dict(result["run_result"])
     return _failure_run_result_payload(task_id, f"Task failed with uncaught error: {result['error']}")
