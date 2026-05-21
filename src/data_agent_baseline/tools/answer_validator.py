@@ -163,31 +163,7 @@ def validate_answer(
             "blanks/nulls via casting (e.g. TRY_CAST/NULLIF) if needed."
         )
 
-    # 3) Minmax question returns multiple tied rows but the question has no "list all" / "tally"
-    # phrasing that would justify a multi-row answer. Fires only when answer has >1 entity row
-    # and no LIMIT 1 was used. This avoids breaking list-all / tally tasks (those skip via
-    # asks_list_all / asks_tally) and numeric aggregate tasks (those have helper col in answer).
-    _LIMIT_ONE_PATTERN = re.compile(r"\blimit\s+1\b", flags=re.IGNORECASE)
-    if (
-        asks_minmax
-        and not asks_list_all
-        and not asks_tally
-        and not wants_extra
-        and len(columns) == 1
-        and not _is_helper_column(columns[0])
-        and len(rows) > 1
-        and history
-        and not _LIMIT_ONE_PATTERN.search(history)
-    ):
-        issues.append(
-            "The question has a min/max intent but does not ask to 'list all' or 'tally'. "
-            "Return exactly one row using TWO sort keys for deterministic tie-breaking: "
-            "ORDER BY metric_column ASC, entity_name_column ASC LIMIT 1. "
-            "Example: if returning event_name ordered by cost, use "
-            "`ORDER BY ex.cost ASC, e.event_name ASC LIMIT 1`. "
-            "Do NOT order by the metric alone (tied values give a non-deterministic result). "
-            "Do NOT return all tied rows."
-        )
+    # 3) (removed — returning all tied rows for min/max is correct behavior)
 
     # 4) Minmax "cost" question where agent queried `amount` without a `cost` column.
     # Fires only when: (a) question has minmax+cost, (b) answer is a single entity column,
